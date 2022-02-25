@@ -262,7 +262,7 @@ RCT_EXPORT_METHOD(startUpload:(NSDictionary *)options resolve:(RCTPromiseResolve
                             reject(@"RN Uploader", @"Asset could not be copied to temp file.", nil);
                             return;
                         }
-                        file[@"path"] = tempFileUrl;
+                        [NSDictionary setValue: tempFileUrl forKey:@"path"];
                         dispatch_group_leave(group);
                     }];
                     dispatch_group_wait(group, DISPATCH_TIME_FOREVER);

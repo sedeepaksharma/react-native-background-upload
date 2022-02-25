@@ -201,4 +201,6 @@ if(bgExpiredRelease){
 
 ## Gratitude
 
-Thanks to https://github.com/Vydia/react-native-background-upload and https://github.com/cristianoccazinsp/react-native-background-upload to provide the main code and ideas.
+Thanks to:
+- https://github.com/Vydia/react-native-background-upload to provide the main code.
+- https://github.com/cristianoccazinsp/react-native-background-upload to provide background upload support in iOS.

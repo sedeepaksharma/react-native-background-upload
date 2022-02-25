@@ -216,6 +216,7 @@ RCT_EXPORT_METHOD(startUpload:(NSDictionary *)options resolve:(RCTPromiseResolve
     NSString *customUploadId = options[@"customUploadId"];
     NSDictionary *headers = options[@"headers"];
     NSDictionary *parameters = options[@"parameters"];
+    NSArray<NSDictionary *> *files = options[@"files"];
 
 
     NSString *thisUploadId = customUploadId;
@@ -248,29 +249,50 @@ RCT_EXPORT_METHOD(startUpload:(NSDictionary *)options resolve:(RCTPromiseResolve
         }];
 
 
-        // asset library files have to be copied over to a temp file.  they can't be uploaded directly
-        if ([fileURI hasPrefix:@"assets-library"]) {
-            dispatch_group_t group = dispatch_group_create();
-            dispatch_group_enter(group);
-            [self copyAssetToFile:fileURI completionHandler:^(NSString * _Nullable tempFileUrl, NSError * _Nullable error) {
-                if (error) {
-                    dispatch_group_leave(group);
-                    reject(@"RN Uploader", @"Asset could not be copied to temp file.", nil);
-                    return;
+        if (files && [files count] > 0) {
+            for (NSDictionary *file in files) {
+                // asset library files have to be copied over to a temp file.  they can't be uploaded directly
+                NSString *filePath = file[@"path"];
+                if ([filePath hasPrefix:@"assets-library"]) {
+                    dispatch_group_t group = dispatch_group_create();
+                    dispatch_group_enter(group);
+                    [self copyAssetToFile:filePath completionHandler:^(NSString * _Nullable tempFileUrl, NSError * _Nullable error) {
+                        if (error) {
+                            dispatch_group_leave(group);
+                            reject(@"RN Uploader", @"Asset could not be copied to temp file.", nil);
+                            return;
+                        }
+                        file[@"path"] = tempFileUrl;
+                        dispatch_group_leave(group);
+                    }];
+                    dispatch_group_wait(group, DISPATCH_TIME_FOREVER);
                 }
-                fileURI = tempFileUrl;
-                dispatch_group_leave(group);
-            }];
-            dispatch_group_wait(group, DISPATCH_TIME_FOREVER);
+            }
+        } else {
+            // asset library files have to be copied over to a temp file.  they can't be uploaded directly
+            if ([fileURI hasPrefix:@"assets-library"]) {
+                dispatch_group_t group = dispatch_group_create();
+                dispatch_group_enter(group);
+                [self copyAssetToFile:fileURI completionHandler:^(NSString * _Nullable tempFileUrl, NSError * _Nullable error) {
+                    if (error) {
+                        dispatch_group_leave(group);
+                        reject(@"RN Uploader", @"Asset could not be copied to temp file.", nil);
+                        return;
+                    }
+                    fileURI = tempFileUrl;
+                    dispatch_group_leave(group);
+                }];
+                dispatch_group_wait(group, DISPATCH_TIME_FOREVER);
+            }
         }
 
         NSURLSessionUploadTask *uploadTask;
 
-        if ([uploadType isEqualToString:@"multipart"]) {
+        if (files && [files count] > 0 && [uploadType isEqualToString:@"multipart"]) {
             NSString *uuidStr = [[NSUUID UUID] UUIDString];
             [request setValue:[NSString stringWithFormat:@"multipart/form-data; boundary=%@", uuidStr] forHTTPHeaderField:@"Content-Type"];
 
-            NSData *httpBody = [self createBodyWithBoundary:uuidStr path:fileURI parameters: parameters fieldName:fieldName];
+            NSData *httpBody = [self createBodyWithBoundary:uuidStr path:fileURI parameters: parameters fieldName:fieldName files:files];
 
             [request setHTTPBody: httpBody];
             uploadTask = [[self urlSession] uploadTaskWithStreamedRequest:request];
@@ -404,7 +426,8 @@ RCT_EXPORT_METHOD(endBackgroundTask: (NSUInteger)taskId resolve:(RCTPromiseResol
 - (NSData *)createBodyWithBoundary:(NSString *)boundary
                          path:(NSString *)path
                          parameters:(NSDictionary *)parameters
-                         fieldName:(NSString *)fieldName {
+                         fieldName:(NSString *)fieldName
+                         files:(NSArray<NSDictionary *> *)files{
 
     NSMutableData *httpBody = [NSMutableData data];
 
@@ -417,21 +440,46 @@ RCT_EXPORT_METHOD(endBackgroundTask: (NSUInteger)taskId resolve:(RCTPromiseResol
     }];
 
 
-    // resolve path
-    if ([path length] > 0){
-        NSURL *fileUri = [NSURL URLWithString: path];
-        NSString *pathWithoutProtocol = [fileUri path];
+    if (files && [files count] > 0) {
+        int count = 0;
+        for (NSDictionary *file in files) {
+            NSString *pathL = file[@"path"];
+            NSString *field = file[@"field"];
+            if (!field) {
+                file = @"file"+ count;
+            }
+            if ([pathL length] > 0){
+                NSURL *fileUri = [NSURL URLWithString: pathL];
+                NSString *pathWithoutProtocol = [fileUri path];
 
-        NSData *data = [[NSFileManager defaultManager] contentsAtPath:pathWithoutProtocol];
-        NSString *filename  = [path lastPathComponent];
-        NSString *mimetype  = [self guessMIMETypeFromFileName:path];
+                NSData *data = [[NSFileManager defaultManager] contentsAtPath:pathWithoutProtocol];
+                NSString *filename  = [pathL lastPathComponent];
+                NSString *mimetype  = [self guessMIMETypeFromFileName:pathL];
 
-        [httpBody appendData:[[NSString stringWithFormat:@"--%@\r\n", boundary] dataUsingEncoding:NSUTF8StringEncoding]];
-        [httpBody appendData:[[NSString stringWithFormat:@"Content-Disposition: form-data; name=\"%@\"; filename=\"%@\"\r\n", fieldName, filename] dataUsingEncoding:NSUTF8StringEncoding]];
-        [httpBody appendData:[[NSString stringWithFormat:@"Content-Type: %@\r\n\r\n", mimetype] dataUsingEncoding:NSUTF8StringEncoding]];
-        [httpBody appendData:data];
-        [httpBody appendData:[@"\r\n" dataUsingEncoding:NSUTF8StringEncoding]];
+                [httpBody appendData:[[NSString stringWithFormat:@"--%@\r\n", boundary] dataUsingEncoding:NSUTF8StringEncoding]];
+                [httpBody appendData:[[NSString stringWithFormat:@"Content-Disposition: form-data; name=\"%@\"; filename=\"%@\"\r\n", field, filename] dataUsingEncoding:NSUTF8StringEncoding]];
+                [httpBody appendData:[[NSString stringWithFormat:@"Content-Type: %@\r\n\r\n", mimetype] dataUsingEncoding:NSUTF8StringEncoding]];
+                [httpBody appendData:data];
+                [httpBody appendData:[@"\r\n" dataUsingEncoding:NSUTF8StringEncoding]];
+            }
+        }
+    } else {
+        // resolve path
+        if ([path length] > 0){
+            NSURL *fileUri = [NSURL URLWithString: path];
+            NSString *pathWithoutProtocol = [fileUri path];
 
+            NSData *data = [[NSFileManager defaultManager] contentsAtPath:pathWithoutProtocol];
+            NSString *filename  = [path lastPathComponent];
+            NSString *mimetype  = [self guessMIMETypeFromFileName:path];
+
+            [httpBody appendData:[[NSString stringWithFormat:@"--%@\r\n", boundary] dataUsingEncoding:NSUTF8StringEncoding]];
+            [httpBody appendData:[[NSString stringWithFormat:@"Content-Disposition: form-data; name=\"%@\"; filename=\"%@\"\r\n", fieldName, filename] dataUsingEncoding:NSUTF8StringEncoding]];
+            [httpBody appendData:[[NSString stringWithFormat:@"Content-Type: %@\r\n\r\n", mimetype] dataUsingEncoding:NSUTF8StringEncoding]];
+            [httpBody appendData:data];
+            [httpBody appendData:[@"\r\n" dataUsingEncoding:NSUTF8StringEncoding]];
+
+        }
     }
 
     [httpBody appendData:[[NSString stringWithFormat:@"--%@--\r\n", boundary] dataUsingEncoding:NSUTF8StringEncoding]];

@@ -14,10 +14,10 @@ declare module "react-native-background-upload" {
     }
 
     export interface CompletedData extends EventData {
-
         responseCode: number
         responseBody: string
     }
+
     export type FileInfo = {
         name: string
         exists: boolean
@@ -117,7 +117,7 @@ declare module "react-native-background-upload" {
 
     type uploadId = string
 
-    export type UploadListenerEvent = 'progress' | 'error' | 'completed' | 'cancelled'
+    export type UploadListenerEvent = 'progress' | 'error' | 'completed' | 'cancelled' | 'bgExpired'
 
 
     export default class Upload {
@@ -128,6 +128,10 @@ declare module "react-native-background-upload" {
         static addListener(event: 'cancelled', uploadId: uploadId | null, callback: (data: EventData) => void): EventSubscription
         static getFileInfo(path: string): Promise<FileInfo>
         static cancelUpload(uploadId: uploadId): Promise<boolean>
+        static canSuspendIfBackground()
+        static getRemainingBgTime(): Promise<boolean>
+        static beginBackgroundTask(): Promise<boolean>
+        static endBackgroundTask(): Promise<boolean>
     }
 
 }

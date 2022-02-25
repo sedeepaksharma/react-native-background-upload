@@ -2,9 +2,9 @@
 /**
  * Handles HTTP background file uploads from an iOS or Android device.
  */
-import { NativeModules, DeviceEventEmitter } from 'react-native';
+import { NativeModules, NativeEventEmitter } from 'react-native';
 
-export type UploadEvent = 'progress' | 'error' | 'completed' | 'cancelled';
+export type UploadEvent = 'progress' | 'error' | 'completed' | 'cancelled' | 'bgExpired';
 
 export type NotificationArgs = {
   enabled: boolean,
@@ -26,16 +26,19 @@ export type StartUploadArgs = {
 };
 
 const NativeModule =
-  NativeModules.VydiaRNFileUploader || NativeModules.RNFileUploader; // iOS is VydiaRNFileUploader and Android is RNFileUploader
+    NativeModules.VydiaRNFileUploader || NativeModules.RNFileUploader; // iOS is VydiaRNFileUploader and Android is RNFileUploader
 const eventPrefix = 'RNFileUploader-';
 
-// for IOS, register event listeners or else they don't fire on DeviceEventEmitter
-if (NativeModules.VydiaRNFileUploader) {
-  NativeModule.addListener(eventPrefix + 'progress');
-  NativeModule.addListener(eventPrefix + 'error');
-  NativeModule.addListener(eventPrefix + 'cancelled');
-  NativeModule.addListener(eventPrefix + 'completed');
-}
+const eventEmitter = new NativeEventEmitter(NativeModule);
+
+// not needed
+// // for IOS, register event listeners or else they don't fire on DeviceEventEmitter
+// if (NativeModules.VydiaRNFileUploader) {
+//   NativeModule.addListener(eventPrefix + 'progress');
+//   NativeModule.addListener(eventPrefix + 'error');
+//   NativeModule.addListener(eventPrefix + 'cancelled');
+//   NativeModule.addListener(eventPrefix + 'completed');
+// }
 
 /*
 Gets file information for the path specified.
@@ -77,7 +80,7 @@ It is recommended to add listeners in the .then of this promise.
 
 */
 export const startUpload = (options: StartUploadArgs): Promise<string> =>
-  NativeModule.startUpload(options);
+    NativeModule.startUpload(options);
 
 /*
 Cancels active upload by string ID of the upload.
@@ -108,15 +111,60 @@ Events (id is always the upload ID):
   completed - { id: string }
 */
 export const addListener = (
-  eventType: UploadEvent,
-  uploadId: string,
-  listener: Function,
+    eventType: UploadEvent,
+    uploadId: string,
+    listener: Function,
 ) => {
-  return DeviceEventEmitter.addListener(eventPrefix + eventType, data => {
+  return eventEmitter.addListener(eventPrefix + eventType, data => {
     if (!uploadId || !data || !data.id || data.id === uploadId) {
       listener(data);
     }
   });
 };
 
-export default { startUpload, cancelUpload, addListener, getFileInfo };
+// call this to let the OS it can suspend again
+// it will be called after a short timeout if it isn't called at all
+export const canSuspendIfBackground = () => {
+  if (Platform.OS === 'ios') {
+    NativeModule.canSuspendIfBackground();
+  }
+};
+
+// returns remaining background time in seconds
+export const getRemainingBgTime = (): Promise<number> => {
+  if (Platform.OS === 'ios') {
+    return NativeModule.getRemainingBgTime();
+  }
+  return Promise.resolve(10 * 60 * 24); // dummy for android, large number
+};
+
+// marks the beginning of a background task and returns its ID
+// in order to request extra background time
+// do not call more than once without calling endBackgroundTask
+// useful if we need to do more background processing in addition to network requests
+// canSuspendIfBackground should still be called in case we run out of time.
+export const beginBackgroundTask = (): Promise<number> => {
+  if (Platform.OS === 'ios') {
+    return NativeModule.beginBackgroundTask();
+  }
+  return Promise.resolve(null); // dummy for android
+};
+
+// marks the end of background task using the id returned by begin
+// failing to call this might end up on app termination
+export const endBackgroundTask = (id: number) => {
+  if (Platform.OS === 'ios') {
+    NativeModule.endBackgroundTask(id);
+  }
+};
+
+export default {
+  startUpload,
+  cancelUpload,
+  addListener,
+  getFileInfo,
+  canSuspendIfBackground,
+  getRemainingBgTime,
+  beginBackgroundTask,
+  endBackgroundTask,
+};

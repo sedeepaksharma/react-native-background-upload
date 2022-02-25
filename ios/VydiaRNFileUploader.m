@@ -446,7 +446,7 @@ RCT_EXPORT_METHOD(endBackgroundTask: (NSUInteger)taskId resolve:(RCTPromiseResol
             NSString *pathL = file[@"path"];
             NSString *field = file[@"field"];
             if (!field) {
-                file = @"file"+ count;
+                field = [NSString stringWithFormat:@"file%i", count];
             }
             if ([pathL length] > 0){
                 NSURL *fileUri = [NSURL URLWithString: pathL];

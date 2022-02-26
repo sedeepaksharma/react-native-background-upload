@@ -8,6 +8,7 @@
 
 @implementation VydiaRNFileUploader{
     unsigned long uploadId;
+    NSMutableDictionary<NSString *, NSDictionary<NSString *, NSNumber *> *> *_lastProgressEventRecords;
     NSMutableDictionary *_responsesData;
     NSURLSession *_urlSession;
     void (^backgroundSessionCompletionHandler)(void);
@@ -31,6 +32,7 @@ static VydiaRNFileUploader *sharedInstance;
 - (id)initPrivate {
     if (self = [super init]) {
         uploadId = 0;
+        _lastProgressEventRecords = [NSMutableDictionary dictionary];
         _responsesData = [NSMutableDictionary dictionary];
         _urlSession = nil;
         backgroundSessionCompletionHandler = nil;
@@ -536,6 +538,7 @@ didCompleteWithError:(NSError *)error {
     }
 
 
+    [self resetLastProgressEventRecord:task.taskDescription];
     if (error == nil) {
         [self _sendEventWithName:@"RNFileUploader-completed" body:data];
         //NSLog(@"RNBU did complete upload %@", task.taskDescription);
@@ -560,7 +563,10 @@ totalBytesExpectedToSend:(int64_t)totalBytesExpectedToSend {
     if (totalBytesExpectedToSend > 0) { // see documentation.  For unknown size it's -1 (NSURLSessionTransferSizeUnknown)
         progress = 100.0 * (float)totalBytesSent / (float)totalBytesExpectedToSend;
     }
-    [self _sendEventWithName:@"RNFileUploader-progress" body:@{ @"id": task.taskDescription, @"progress": [NSNumber numberWithFloat:progress] }];
+    
+    if ([self canDispatchProgressEvent:task.taskDescription progress:progress]) {
+        [self _sendEventWithName:@"RNFileUploader-progress" body:@{@"id":task.taskDescription, @"progress":[NSNumber numberWithFloat:progress]}];
+    }
 }
 
 - (void)URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)dataTask didReceiveData:(NSData *)data {
@@ -595,6 +601,33 @@ totalBytesExpectedToSend:(int64_t)totalBytesExpectedToSend {
             }
         });
     }
+}
+
+// dispatch progress event on progress changes and only after 1 second to last event
+- (bool)canDispatchProgressEvent:(NSString *)uploadId progress:(float)progress {
+    // dispatch progress event on progress changes and only after 1 second to last event
+    int effProgress = 1;
+    if (progress > 1) {
+        effProgress = progress;
+    }
+    NSDictionary<NSString *, NSNumber *> *lastEventRecord = _lastProgressEventRecords[uploadId];
+    float lastProgress = 0;
+    long lastTime = 0;
+    if (lastEventRecord) {
+        lastProgress = [lastEventRecord[@"progress"] intValue];
+        lastTime = [lastEventRecord[@"time"] doubleValue];
+    }
+    double currentTime = [[NSDate date] timeIntervalSince1970];
+    if (!lastEventRecord || lastProgress > effProgress || (lastProgress <= effProgress - 1 && currentTime - lastTime > 1)) {
+        [_lastProgressEventRecords setValue:@{@"progress": [NSNumber numberWithInt:effProgress], @"time": [NSNumber numberWithDouble:currentTime]} forKey:uploadId];
+        return YES;
+    }
+    return NO;
+}
+
+// reset upload progress event record
+- (void)resetLastProgressEventRecord:(NSString *)uploadId {
+    [_lastProgressEventRecords removeObjectForKey:uploadId];
 }
 
 @end

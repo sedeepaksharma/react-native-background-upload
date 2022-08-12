@@ -7,7 +7,7 @@ require "json"
    s.name = package[:name]
    s.version = package[:version]
    s.license = { type: "MIT" }
-   s.homepage = "https://github.com/Vydia/react-native-background-upload"
+   s.homepage = "https://github.com/sedeepaksharma/react-native-background-upload.git"
    s.authors = package[:author]
    s.summary = package[:description]
    s.source = { git: package[:repository][:url] }
